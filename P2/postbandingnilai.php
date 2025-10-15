@@ -3,131 +3,40 @@
 <head>
   <meta charset="utf-8">
   <title>Hasil Banding Nilai</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background:#f4f6f8;
-      margin: 60px;
-    }
-    .card {
-      width: 620px;
-      max-width: 95%;
-      margin: auto;
-      background: #fff;
-      padding: 28px 30px;
-      border-radius: 10px;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-    }
-    h1 {
-      margin: 0 0 10px 0;
-      text-align: center;
-      color: #333;
-    }
-    .table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 18px;
-    }
-    .table td {
-      padding: 10px 12px;
-      vertical-align: top;
-      border-bottom: 1px solid #eef1f4;
-    }
-    .label {
-      width: 160px;
-      font-weight: 700;
-      color: #444;
-    }
-    .value {
-      color: #222;
-    }
-    .result {
-      margin-top: 18px;
-      padding: 14px;
-      border-radius: 8px;
-      background: #f1f8ff;
-      color: #0b66d1;
-      font-weight: 700;
-      text-align: center;
-    }
-    .back {
-      margin-top: 20px;
-      text-align: center;
-    }
-    .btn {
-      display: inline-block;
-      padding: 10px 16px;
-      border-radius: 6px;
-      background: #007bff;
-      color: #fff;
-      text-decoration: none;
-      font-weight: 600;
-    }
-    .error {
-      margin-top: 12px;
-      padding: 12px;
-      background: #fff4f4;
-      color: #b71c1c;
-      border-radius: 8px;
-      text-align:center;
-      font-weight:600;
-    }
-  </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Hasil Banding Nilai</h1>
+  <h1>Hasil Banding Nilai</h1>
 
-    <?php
-      // ambil data POST dengan aman
-      $raw1 = isset($_POST['bil1']) ? trim($_POST['bil1']) : '';
-      $raw2 = isset($_POST['bil2']) ? trim($_POST['bil2']) : '';
+  <?php
+    // Ambil data dari form
+    $bil1 = isset($_POST['bil1']) ? trim($_POST['bil1']) : '';
+    $bil2 = isset($_POST['bil2']) ? trim($_POST['bil2']) : '';
 
-      // fungsi bantu untuk menampilkan aman ke HTML
-      function h($s) { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
+    if ($bil1 === '' || $bil2 === '') {
+        echo "<p><b>Silakan isi kedua bilangan terlebih dahulu.</b></p>";
+    } elseif (!is_numeric(str_replace(',', '.', $bil1)) || !is_numeric(str_replace(',', '.', $bil2))) {
+        echo "<p><b>Input harus berupa angka. Contoh: 5, 3.14, atau 10.</b></p>";
+    } else {
+        // Ubah koma menjadi titik agar bisa terbaca sebagai desimal
+        $bil1 = str_replace(',', '.', $bil1);
+        $bil2 = str_replace(',', '.', $bil2);
 
-      // validasi: pastikan input tidak kosong
-      if ($raw1 === '' || $raw2 === '') {
-        echo '<div class="error">Silakan isi kedua bilangan terlebih dahulu.</div>';
-      } else {
-        // cek apakah keduanya angka (boleh desimal), pakai filter_var setelah mengganti koma dengan titik
-        $norm1 = str_replace(',', '.', $raw1);
-        $norm2 = str_replace(',', '.', $raw2);
+        $num1 = $bil1 + 0;
+        $num2 = $bil2 + 0;
 
-        $isNum1 = is_numeric($norm1);
-        $isNum2 = is_numeric($norm2);
+        echo "<p>Bilangan I: <b>$num1</b></p>";
+        echo "<p>Bilangan II: <b>$num2</b></p>";
 
-        if (! $isNum1 || ! $isNum2) {
-          echo '<div class="error">Input harus berupa angka (contoh: 10, 3.14 atau 2,5). Periksa kembali.</div>';
+        if ($num1 > $num2) {
+            echo "<p><b>Bilangan I lebih besar dari Bilangan II.</b></p>";
+        } elseif ($num1 < $num2) {
+            echo "<p><b>Bilangan II lebih besar dari Bilangan I.</b></p>";
         } else {
-          // konversi ke float atau int sesuai kebutuhan
-          $num1 = $norm1 + 0; // otomatis jadi int/float
-          $num2 = $norm2 + 0;
-
-          // tampilkan nilai asli yang dimasukkan
-          echo '<table class="table">';
-          echo '<tr><td class="label">Bilangan I</td><td class="value">'.h($raw1).'</td></tr>';
-          echo '<tr><td class="label">Bilangan II</td><td class="value">'.h($raw2).'</td></tr>';
-          echo '</table>';
-
-          // bandingkan dengan penanganan desimal
-          if ($num1 > $num2) {
-            $pesan = "Bilangan I lebih besar dari Bilangan II.";
-          } elseif ($num1 < $num2) {
-            $pesan = "Bilangan II lebih besar dari Bilangan I.";
-          } else {
-            $pesan = "Kedua bilangan sama nilainya.";
-          }
-
-          echo '<div class="result">'.h($pesan).'</div>';
+            echo "<p><b>Kedua bilangan sama nilainya.</b></p>";
         }
-      }
-    ?>
+    }
+  ?>
 
-    <div class="back">
-      <a class="btn" href="formbandingnilai.html">&larr; Kembali ke Form</a>
-    </div>
-  </div>
+  <p><a href="formbandingnilai.php">← Kembali ke Form</a></p>
 </body>
 </html>
