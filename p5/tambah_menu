@@ -1,0 +1,213 @@
+<?php
+// tambah_menu.php (perbaikan: pastikan id_kategori tidak null & bind_param cocok)
+include "koneksi.php";
+
+$errors = [];
+$success = false;
+
+// ambil daftar kategori jika tabel kategori ada
+$kategori_list = [];
+$kat_exists = false;
+$kat_id_col = 'id_kategori';
+$kat_name_col = 'nama_kategori';
+$chk = mysqli_query($koneksi, "SHOW TABLES LIKE 'kategori'");
+if ($chk && mysqli_num_rows($chk) > 0) {
+    $kat_exists = true;
+    $qcols = mysqli_query($koneksi, "SHOW COLUMNS FROM kategori");
+    $cols = [];
+    while ($c = mysqli_fetch_assoc($qcols)) $cols[] = $c['Field'];
+    mysqli_free_result($qcols);
+    // fallback kolom
+    if (!in_array('id_kategori', $cols)) $kat_id_col = $cols[0];
+    if (!in_array('nama_kategori', $cols)) $kat_name_col = $cols[1] ?? $cols[0];
+
+    // ambil data kategori
+    $qr = "SELECT `$kat_id_col` AS idk, `$kat_name_col` AS name FROM kategori ORDER BY `$kat_name_col`";
+    $r = mysqli_query($koneksi, $qr);
+    while ($row = mysqli_fetch_assoc($r)) {
+        $kategori_list[] = ['id' => $row['idk'], 'name' => $row['name']];
+    }
+    mysqli_free_result($r);
+}
+if ($chk) mysqli_free_result($chk);
+
+// fungsi bantu upload gambar (mengembalikan path relatif atau empty string)
+function handle_upload_image($file_field = 'gambar') {
+    if (empty($_FILES[$file_field]['name'])) return '';
+    $file = $_FILES[$file_field];
+    if ($file['error'] !== UPLOAD_ERR_OK) return false;
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+    $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+    if (!in_array($mime, $allowed)) return false;
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $safe_name = 'menu_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    $upload_dir = __DIR__ . '/uploads';
+    if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+    $dest = $upload_dir . '/' . $safe_name;
+    if (!move_uploaded_file($file['tmp_name'], $dest)) return false;
+    return 'uploads/' . $safe_name;
+}
+
+// proses form
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $nama = trim($_POST['nama_menu'] ?? '');
+    $deskripsi = trim($_POST['deskripsi'] ?? '');
+    $harga_raw = str_replace(',', '', ($_POST['harga_raw'] ?? '0')); // dari field hidden harga_raw
+    $harga = is_numeric($harga_raw) ? (float)$harga_raw : null;
+    $status = ($_POST['status'] ?? 'masih ada') === 'habis' ? 'habis' : 'masih ada';
+
+    // tentukan id_kategori: jika dropdown tersedia pakai itu; kalau kosong, pakai/ buat 'Umum'
+    $id_kategori = null;
+    if ($kat_exists && !empty($_POST['id_kategori'])) {
+        $id_kategori = (int)$_POST['id_kategori'];
+    } elseif ($kat_exists) {
+        // cari apakah ada kategori 'Umum', jika tidak buat
+        $cek = mysqli_prepare($koneksi, "SELECT `$kat_id_col` FROM kategori WHERE `$kat_name_col` = ?");
+        mysqli_stmt_bind_param($cek, "s", $cname = 'Umum');
+        mysqli_stmt_execute($cek);
+        $rescek = mysqli_stmt_get_result($cek);
+        $rowc = mysqli_fetch_assoc($rescek);
+        mysqli_stmt_close($cek);
+        if ($rowc && isset($rowc[$kat_id_col])) {
+            $id_kategori = (int)$rowc[$kat_id_col];
+        } else {
+            // insert kategori Umum
+            $ins = mysqli_prepare($koneksi, "INSERT INTO kategori (`$kat_name_col`) VALUES (?)");
+            mysqli_stmt_bind_param($ins, "s", $cname);
+            mysqli_stmt_execute($ins);
+            $id_kategori = mysqli_insert_id($koneksi);
+            mysqli_stmt_close($ins);
+        }
+    } else {
+        // jika tidak ada tabel kategori, tapi DB menu mengharuskan id_kategori NOT NULL,
+        // kita set 0 (atau kamu bisa ubah ke NULL jika DB izinkan). Disini saya pilih 0.
+        $id_kategori = 0;
+    }
+
+    // validasi
+    if ($nama === '') $errors[] = "Nama menu wajib diisi.";
+    if ($harga === null) $errors[] = "Harga tidak valid, masukkan angka (mis. 25000).";
+
+    // handle gambar
+    $gambar_db = '';
+    if (!empty($_FILES['gambar']['name'])) {
+        $upload_res = handle_upload_image('gambar');
+        if ($upload_res === false) {
+            $errors[] = "Upload gambar gagal atau tipe tidak diizinkan.";
+        } else {
+            $gambar_db = $upload_res;
+        }
+    }
+
+    if (empty($errors)) {
+        // siapkan query insert — sesuai strukturmu:
+        // columns: id_kategori, nama_menu, deskripsi, harga, status, gambar
+        // pastikan tipe binding: i (int) , s, s, d (double), s, s  => "issdss"
+        $sql = "INSERT INTO `menu` (id_kategori, nama_menu, deskripsi, harga, status, gambar)
+                VALUES (?, ?, ?, ?, ?, ?)";
+        $stmt = mysqli_prepare($koneksi, $sql);
+        if (!$stmt) {
+            $errors[] = "Gagal menyiapkan query: " . mysqli_error($koneksi);
+        } else {
+            // pastikan semua variable ada (gambar_db minimal empty string)
+            $g = $gambar_db;
+            // bind harus cocok jumlahnya: 6 placeholders => 6 type chars
+            // types: i s s d s s
+            mysqli_stmt_bind_param($stmt, "issdss", $id_kategori, $nama, $deskripsi, $harga, $status, $g);
+            if (mysqli_stmt_execute($stmt)) {
+                $success = true;
+                mysqli_stmt_close($stmt);
+                header("Location: tambah_menu.php?added=1");
+                exit;
+            } else {
+                $errors[] = "Gagal menyimpan: " . mysqli_stmt_error($stmt);
+                mysqli_stmt_close($stmt);
+            }
+        }
+    }
+}
+?>
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"/>
+<title>Tambah Menu</title>
+<style>
+/* gaya minimal agar rapi */
+body{font-family:Arial,Helvetica,sans-serif;background:#fffaf6;color:#333;padding:18px}
+.form{max-width:720px;margin:0 auto;background:#fff;padding:18px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.05)}
+label{display:block;margin-top:10px;font-weight:600}
+input, textarea, select{width:100%;padding:8px;border-radius:6px;border:1px solid #e6dcd3;margin-top:6px}
+.btn{margin-top:12px;padding:10px 14px;background:#7a4b2b;color:#fff;border:0;border-radius:8px;cursor:pointer}
+.err{background:#ffecec;color:#b30000;padding:10px;border-radius:6px}
+.ok{background:#eaffef;color:#0a663a;padding:10px;border-radius:6px}
+.small{font-size:0.9rem;color:#6b5146}
+</style>
+</head>
+<body>
+  <div class="form">
+    <h2>Tambah Menu</h2>
+
+    <?php if (!empty($errors)): ?>
+      <div class="err"><ul><?php foreach($errors as $e) echo "<li>".htmlspecialchars($e)."</li>"; ?></ul></div>
+    <?php endif; ?>
+
+    <?php if (isset($_GET['added'])): ?>
+      <div class="ok">Menu berhasil ditambahkan. <a href="menu2.php">Lihat di menu</a></div>
+    <?php endif; ?>
+
+    <form method="post" enctype="multipart/form-data">
+      <label>Nama Menu</label>
+      <input type="text" name="nama_menu" required>
+
+      <label>Deskripsi</label>
+      <textarea name="deskripsi" rows="4"></textarea>
+
+      <label>Harga (ketik angka, contoh: 25000)</label>
+      <input type="text" id="harga_view" oninput="formatHargaView()" placeholder="25000" />
+      <input type="hidden" name="harga_raw" id="harga_raw">
+
+      <label>Status</label>
+      <select name="status">
+        <option value="masih ada">Masih Ada</option>
+        <option value="habis">Habis</option>
+      </select>
+
+      <label>Kategori</label>
+      <?php if (!empty($kategori_list)): ?>
+        <select name="id_kategori">
+          <option value="">-- Pilih kategori (opsional) --</option>
+          <?php foreach($kategori_list as $k): ?>
+            <option value="<?php echo (int)$k['id']; ?>"><?php echo htmlspecialchars($k['name']); ?></option>
+          <?php endforeach; ?>
+        </select>
+      <?php else: ?>
+        <div class="small">Tabel kategori tidak ditemukan. Sistem akan menyetkan id_kategori = 0.</div>
+      <?php endif; ?>
+
+      <label>Tambah gambar (opsional)</label>
+      <input type="file" name="gambar" accept="image/*">
+
+      <button class="btn" type="submit" onclick="prepareHarga()">Simpan</button>
+    </form>
+  </div>
+
+<script>
+function formatNumber(n){ return n.replace(/\D/g,"").replace(/\B(?=(\d{3})+(?!\d))/g,"."); }
+function formatHargaView(){
+  var v = document.getElementById('harga_view').value;
+  v = v.replace(/[^\d]/g,'');
+  document.getElementById('harga_view').value = formatNumber(v);
+  document.getElementById('harga_raw').value = v;
+}
+function prepareHarga(){
+  if (!document.getElementById('harga_raw').value){
+    var v = document.getElementById('harga_view').value.replace(/[^\d]/g,'');
+    document.getElementById('harga_raw').value = v;
+  }
+}
+</script>
+</body>
+</html>
